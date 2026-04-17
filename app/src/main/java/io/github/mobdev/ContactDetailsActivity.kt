@@ -20,9 +20,9 @@ class ContactDetailsActivity : AppCompatActivity() {
         val phone = intent.getStringExtra("phone") ?: "Не указано"
         val email = intent.getStringExtra("email") ?: "Не указано"
 
-        nameText.text = "Имя: $name"
-        phoneText.text = "Телефон: $phone"
-        emailText.text = "Email: $email"
+        nameText.text = getString(R.string.name_label, name)
+        phoneText.text = getString(R.string.phone_label, phone)
+        emailText.text = getString(R.string.email_label, email)
     }
 
     override fun onSupportNavigateUp(): Boolean {

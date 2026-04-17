@@ -98,7 +98,7 @@ class MainActivity : AppCompatActivity() {
     private fun showContacts() {
         val contacts = fetchContacts()
 
-        statusText.text = "Найдено контактов: ${contacts.size}"
+        statusText.text = getString(R.string.contacts_found, contacts.size)
         contactsList.visibility = View.VISIBLE
 
         val contactNames = contacts.map { "${it.name} — ${it.phoneNumber}" }

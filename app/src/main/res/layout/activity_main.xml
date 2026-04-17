@@ -9,7 +9,7 @@
         android:id="@+id/statusText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Нет доступа к контактам"
+        android:text="@string/no_permission"
         android:textSize="20sp" />
 
     <Button
@@ -17,7 +17,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:text="Выдать разрешение" />
+        android:text="@string/grant_permission" />
 
     <ListView
         android:id="@+id/contactsList"
