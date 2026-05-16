@@ -1,125 +1,109 @@
 package io.github.mobdev
 
-import android.Manifest
-import android.annotation.SuppressLint
-import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Bundle
-import android.provider.ContactsContract
-import android.view.View
-import android.widget.ArrayAdapter
 import android.widget.Button
-import android.widget.ListView
-import android.widget.TextView
-import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.EditText
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.http.Body
+import retrofit2.http.POST
+import retrofit2.Response
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var statusText: TextView
-    private lateinit var requestButton: Button
-    private lateinit var contactsList: ListView
+    // API интерфейс прямо здесь (потом вынесем)
+    interface ChatApi {
+        @POST("login")
+        suspend fun login(@Body body: LoginRequest): Response<okhttp3.ResponseBody>
+    }
 
-    private val permissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-            if (isGranted) {
-                requestButton.visibility = View.GONE
-                showContacts()
-            } else {
-                statusText.text = "Нет доступа к контактам"
-                requestButton.visibility = View.VISIBLE
-                contactsList.visibility = View.GONE
-            }
-        }
+    data class LoginRequest(
+        val name: String,
+        val pwd: String
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        statusText = findViewById(R.id.statusText)
-        requestButton = findViewById(R.id.requestPermissionButton)
-        contactsList = findViewById(R.id.contactsList)
+        val etLogin = findViewById<EditText>(R.id.etLogin)
+        val etPassword = findViewById<EditText>(R.id.etPassword)
+        val btnLogin = findViewById<Button>(R.id.btnLogin)
 
-        val isGranted = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.READ_CONTACTS
-        ) == PackageManager.PERMISSION_GRANTED
-
-        if (isGranted) {
-            requestButton.visibility = View.GONE
-            showContacts()
-        } else {
-            statusText.text = "Нет доступа к контактам"
-            requestButton.visibility = View.VISIBLE
-            contactsList.visibility = View.GONE
+        // Retrofit
+        val logging = HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BODY
         }
 
-        requestButton.setOnClickListener {
-            permissionLauncher.launch(Manifest.permission.READ_CONTACTS)
-        }
-    }
+        val client = OkHttpClient.Builder()
+            .addInterceptor(logging)
+            .build()
 
-    @SuppressLint("Range")
-    private fun fetchContacts(): List<Contact> {
-        val contacts = mutableListOf<Contact>()
+        val api = Retrofit.Builder()
+            .baseUrl("https://faerytea.name/")
+            .client(client)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(ChatApi::class.java)
 
-        val cursor = contentResolver.query(
-            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-            null,
-            null,
-            null,
-            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC"
-        ) ?: return emptyList()
+        btnLogin.setOnClickListener {
+            val login = etLogin.text.toString()
+            val password = etPassword.text.toString()
 
-        cursor.use {
-            while (it.moveToNext()) {
-                val name = it.getString(
-                    it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
-                ) ?: "Без имени"
+            lifecycleScope.launch {
+                try {
+                    val response = api.login(LoginRequest(login, password))
 
-                val phone = it.getString(
-                    it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
-                ) ?: ""
+                    if (response.isSuccessful) {
 
-                contacts.add(
-                    Contact(
-                        name = name,
-                        phoneNumber = phone,
-                        email = null
-                    )
-                )
+                        val token = response.body()?.string() ?: ""
+
+                        android.util.Log.d("MY_LOG", "TOKEN: $token")
+
+                        getSharedPreferences("auth", MODE_PRIVATE)
+                            .edit()
+                            .putString("token", token)
+                            .putString("login", login)
+                            .apply()
+
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Вход выполнен",
+                            Toast.LENGTH_SHORT
+                        ).show()
+
+                        val intent = android.content.Intent(this@MainActivity, ChatsActivity::class.java)
+                        startActivity(intent)
+                        finish()
+
+                    } else if (response.code() == 401) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            getString(R.string.login_error),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Ошибка: ${response.code()}",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Ошибка сети",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
             }
-        }
-
-        return contacts
-    }
-
-    private fun showContacts() {
-        val contacts = fetchContacts()
-
-        statusText.text = getString(R.string.contacts_found, contacts.size)
-        contactsList.visibility = View.VISIBLE
-
-        val contactNames = contacts.map { "${it.name} — ${it.phoneNumber}" }
-
-        val adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_list_item_1,
-            contactNames
-        )
-
-        contactsList.adapter = adapter
-
-        contactsList.setOnItemClickListener { _, _, position, _ ->
-            val contact = contacts[position]
-
-            val intent = Intent(this, ContactDetailsActivity::class.java)
-            intent.putExtra("name", contact.name)
-            intent.putExtra("phone", contact.phoneNumber)
-            intent.putExtra("email", contact.email)
-
-            startActivity(intent)
         }
     }
 }
