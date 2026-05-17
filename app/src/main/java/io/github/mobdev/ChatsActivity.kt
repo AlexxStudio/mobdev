@@ -2,32 +2,76 @@ package io.github.mobdev
 
 import android.os.Bundle
 import android.widget.ArrayAdapter
+import android.widget.Button
+import android.widget.EditText
 import android.widget.ListView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody
 import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.http.Body
 import retrofit2.http.GET
-import android.widget.Button
+import retrofit2.http.Header
+import retrofit2.http.POST
 
 class ChatsActivity : AppCompatActivity() {
+
+    data class MessageData(
+        @SerializedName("Text")
+        val textData: TextData?,
+
+        @SerializedName("Image")
+        val imageData: ImageData?
+    )
+
+    data class TextData(
+        val text: String?
+    )
+
+    data class ImageData(
+        val link: String?
+    )
+
+    data class SendMessage(
+        val from: String,
+        val to: String,
+        val data: MessageData
+    )
 
     interface ChatApi {
         @GET("channels")
         suspend fun getChannels(): List<String>
+
+        @POST("messages")
+        suspend fun sendMessage(
+            @Header("X-Auth-Token") token: String,
+            @Body message: SendMessage
+        ): Response<ResponseBody>
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_chats)
+
         val btnLogout = findViewById<Button>(R.id.btnLogout)
+        val listView = findViewById<ListView>(R.id.chatsList)
+        val newChatInput = findViewById<EditText>(R.id.newChatInput)
+        val createChatButton = findViewById<Button>(R.id.createChatButton)
+
+        val token = getSharedPreferences("auth", MODE_PRIVATE)
+            .getString("token", "") ?: ""
+
+        val username = getSharedPreferences("auth", MODE_PRIVATE)
+            .getString("login", "") ?: ""
 
         btnLogout.setOnClickListener {
-
             getSharedPreferences("auth", MODE_PRIVATE)
                 .edit()
                 .clear()
@@ -35,11 +79,8 @@ class ChatsActivity : AppCompatActivity() {
 
             val intent = android.content.Intent(this, MainActivity::class.java)
             startActivity(intent)
-
             finish()
         }
-
-        val listView = findViewById<ListView>(R.id.chatsList)
 
         val logging = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BODY
@@ -56,37 +97,94 @@ class ChatsActivity : AppCompatActivity() {
             .build()
             .create(ChatApi::class.java)
 
-        lifecycleScope.launch {
-            try {
-                val channels = api.getChannels()
+        fun loadChannels() {
+            lifecycleScope.launch {
+                try {
+                    val channels = api.getChannels()
+                        .sortedBy { it.replace("@channel", "").lowercase() }
 
-                val adapter = ArrayAdapter(
-                    this@ChatsActivity,
-                    android.R.layout.simple_list_item_1,
-                    channels
-                )
-
-                listView.adapter = adapter
-
-                listView.setOnItemClickListener { _, _, position, _ ->
-                    val chatName = channels[position]
-
-                    val intent = android.content.Intent(
+                    val adapter = ArrayAdapter(
                         this@ChatsActivity,
-                        MessagesActivity::class.java
+                        android.R.layout.simple_list_item_1,
+                        channels
                     )
-                    intent.putExtra("chat", chatName)
-                    startActivity(intent)
-                }
 
-            } catch (e: Exception) {
-                e.printStackTrace()
-                Toast.makeText(
-                    this@ChatsActivity,
-                    "Не удалось загрузить чаты",
-                    Toast.LENGTH_SHORT
-                ).show()
+                    listView.adapter = adapter
+
+                    listView.setOnItemClickListener { _, _, position, _ ->
+                        val chatName = channels[position]
+
+                        val intent = android.content.Intent(
+                            this@ChatsActivity,
+                            MessagesActivity::class.java
+                        )
+                        intent.putExtra("chat", chatName)
+                        startActivity(intent)
+                    }
+
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        this@ChatsActivity,
+                        "Не удалось загрузить чаты",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
             }
         }
+
+        createChatButton.setOnClickListener {
+            val input = newChatInput.text.toString().trim()
+
+            if (input.isBlank()) {
+                Toast.makeText(this, "Введите название канала", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            val channelName = if (input.endsWith("@channel")) {
+                input
+            } else {
+                "$input@channel"
+            }
+
+            lifecycleScope.launch {
+                try {
+                    val message = SendMessage(
+                        from = username,
+                        to = channelName,
+                        data = MessageData(
+                            textData = TextData("Канал создан"),
+                            imageData = null
+                        )
+                    )
+
+                    val response = api.sendMessage(token, message)
+
+                    if (response.isSuccessful) {
+                        newChatInput.text.clear()
+                        loadChannels()
+                        Toast.makeText(
+                            this@ChatsActivity,
+                            "Канал создан",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        Toast.makeText(
+                            this@ChatsActivity,
+                            "Ошибка создания: ${response.code()}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        this@ChatsActivity,
+                        "Ошибка: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+
+        loadChannels()
     }
 }

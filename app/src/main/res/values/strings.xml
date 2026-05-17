@@ -18,4 +18,14 @@
 
     <string name="not_specified">Не указано</string>
 
+    <string name="image">Картинка</string>
+
+    <string name="message_hint">Сообщение</string>
+    <string name="image_button">+</string>
+    <string name="send_button">Отправить</string>
+
+    <string name="logout_button">Выйти</string>
+
+    <string name="new_channel_hint">Новый канал</string>
+    <string name="create_button">Создать</string>
 </resources>
