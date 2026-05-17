@@ -1,10 +1,14 @@
 package io.github.mobdev
 
+import android.content.res.Configuration
 import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ListView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -23,6 +27,8 @@ import retrofit2.http.POST
 
 class ChatsActivity : AppCompatActivity() {
 
+    private var selectedChat: String? = null
+
     data class MessageData(
         @SerializedName("Text")
         val textData: TextData?,
@@ -31,13 +37,9 @@ class ChatsActivity : AppCompatActivity() {
         val imageData: ImageData?
     )
 
-    data class TextData(
-        val text: String?
-    )
+    data class TextData(val text: String?)
 
-    data class ImageData(
-        val link: String?
-    )
+    data class ImageData(val link: String?)
 
     data class SendMessage(
         val from: String,
@@ -64,6 +66,8 @@ class ChatsActivity : AppCompatActivity() {
         val listView = findViewById<ListView>(R.id.chatsList)
         val newChatInput = findViewById<EditText>(R.id.newChatInput)
         val createChatButton = findViewById<Button>(R.id.createChatButton)
+
+        listView.choiceMode = ListView.CHOICE_MODE_SINGLE
 
         val token = getSharedPreferences("auth", MODE_PRIVATE)
             .getString("token", "") ?: ""
@@ -97,22 +101,39 @@ class ChatsActivity : AppCompatActivity() {
             .build()
             .create(ChatApi::class.java)
 
+        fun updateRightPanel(chatName: String) {
+            val placeholder = findViewById<TextView?>(R.id.placeholder)
+            placeholder?.text = chatName
+        }
+
         fun loadChannels() {
             lifecycleScope.launch {
                 try {
                     val channels = api.getChannels()
                         .sortedBy { it.replace("@channel", "").lowercase() }
 
-                    val adapter = ArrayAdapter(
+                    val adapter = object : ArrayAdapter<String>(
                         this@ChatsActivity,
-                        android.R.layout.simple_list_item_1,
+                        android.R.layout.simple_list_item_activated_1,
                         channels
-                    )
+                    ) {
+                        override fun getView(
+                            position: Int,
+                            convertView: View?,
+                            parent: ViewGroup
+                        ): View {
+                            val view = super.getView(position, convertView, parent)
+                            listView.setItemChecked(position, channels[position] == selectedChat)
+                            return view
+                        }
+                    }
 
                     listView.adapter = adapter
 
                     listView.setOnItemClickListener { _, _, position, _ ->
                         val chatName = channels[position]
+                        selectedChat = chatName
+                        adapter.notifyDataSetChanged()
 
                         val intent = android.content.Intent(
                             this@ChatsActivity,

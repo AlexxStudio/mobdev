@@ -28,4 +28,5 @@
 
     <string name="new_channel_hint">Новый канал</string>
     <string name="create_button">Создать</string>
+    <string name="select_chat">Выберите чат</string>
 </resources>
