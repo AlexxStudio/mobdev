@@ -18,10 +18,7 @@ import androidx.lifecycle.lifecycleScope
 import coil.load
 import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.launch
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.ResponseBody
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Response
@@ -30,24 +27,10 @@ import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
-import retrofit2.http.Multipart
 import retrofit2.http.POST
-import retrofit2.http.Part
 import retrofit2.http.Path
 
 class MessagesActivity : AppCompatActivity() {
-
-    private var selectedImageUri: Uri? = null
-
-    private val selectedImageKey = "selected_image_uri"
-
-    private val imagePicker =
-        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
-            selectedImageUri = uri
-            if (uri != null) {
-                Toast.makeText(this, "Картинка выбрана", Toast.LENGTH_SHORT).show()
-            }
-        }
 
     data class Message(
         val id: String?,
@@ -83,6 +66,7 @@ class MessagesActivity : AppCompatActivity() {
         @GET("channel/{name}")
         suspend fun getMessages(
             @Path("name") name: String,
+            @retrofit2.http.Query("limit") limit: Int = 20,
             @retrofit2.http.Query("reverse") reverse: Boolean = true
         ): List<Message>
 
@@ -91,14 +75,6 @@ class MessagesActivity : AppCompatActivity() {
             @Header("X-Auth-Token") token: String,
             @Body message: SendMessage
         ): Response<ResponseBody>
-
-        @Multipart
-        @POST("messages")
-        suspend fun sendImage(
-            @Header("X-Auth-Token") token: String,
-            @Part("msg") msg: okhttp3.RequestBody,
-            @Part picture: MultipartBody.Part
-        ): Response<ResponseBody>
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -106,15 +82,10 @@ class MessagesActivity : AppCompatActivity() {
         setContentView(R.layout.activity_messages)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
-        selectedImageUri = savedInstanceState
-            ?.getString(selectedImageKey)
-            ?.let { Uri.parse(it) }
-
         val chatName = intent.getStringExtra("chat") ?: ""
         val listView = findViewById<ListView>(R.id.messagesList)
         val messageInput = findViewById<EditText>(R.id.messageInput)
         val sendButton = findViewById<Button>(R.id.sendButton)
-        val imageButton = findViewById<Button>(R.id.imageButton)
 
         val token = getSharedPreferences("auth", MODE_PRIVATE)
             .getString("token", "") ?: ""
@@ -137,6 +108,17 @@ class MessagesActivity : AppCompatActivity() {
             .build()
             .create(ChatApi::class.java)
 
+        fun logoutToLogin() {
+            getSharedPreferences("auth", MODE_PRIVATE)
+                .edit()
+                .clear()
+                .apply()
+
+            val intent = Intent(this@MessagesActivity, MainActivity::class.java)
+            startActivity(intent)
+            finish()
+        }
+
         fun loadMessages() {
             lifecycleScope.launch {
                 try {
@@ -152,73 +134,9 @@ class MessagesActivity : AppCompatActivity() {
             }
         }
 
-        fun sendSelectedImage(uri: Uri) {
-            lifecycleScope.launch {
-                try {
-                    val bytes = contentResolver.openInputStream(uri)?.use {
-                        it.readBytes()
-                    }
-
-                    if (bytes == null) {
-                        Toast.makeText(this@MessagesActivity, "Не удалось прочитать картинку", Toast.LENGTH_SHORT).show()
-                        return@launch
-                    }
-
-                    val mimeType = contentResolver.getType(uri) ?: "image/jpeg"
-                    val imageBody = bytes.toRequestBody(mimeType.toMediaTypeOrNull())
-
-                    val picturePart = MultipartBody.Part.createFormData(
-                        "picture",
-                        "image.jpg",
-                        imageBody
-                    )
-
-                    val msgJson = """
-                        {
-                            "from": "$username",
-                            "to": "$chatName"
-                        }
-                    """.trimIndent()
-
-                    val msgPart = msgJson.toRequestBody("application/json".toMediaTypeOrNull())
-
-                    val response = api.sendImage(token, msgPart, picturePart)
-
-                    if (response.isSuccessful) {
-                        selectedImageUri = null
-                        loadMessages()
-                    } else {
-                        Toast.makeText(
-                            this@MessagesActivity,
-                            "Ошибка картинки: ${response.code()} ${response.errorBody()?.string()}",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-
-                } catch (e: Exception) {
-                    Toast.makeText(
-                        this@MessagesActivity,
-                        "Ошибка картинки: ${e.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
-        }
-
         loadMessages()
 
-        imageButton.setOnClickListener {
-            imagePicker.launch("image/*")
-        }
-
         sendButton.setOnClickListener {
-            val selectedUri = selectedImageUri
-
-            if (selectedUri != null) {
-                sendSelectedImage(selectedUri)
-                return@setOnClickListener
-            }
-
             val text = messageInput.text.toString()
 
             if (text.isBlank()) {
@@ -242,6 +160,8 @@ class MessagesActivity : AppCompatActivity() {
                     if (response.isSuccessful) {
                         messageInput.text.clear()
                         loadMessages()
+                    } else if (response.code() == 401) {
+                        logoutToLogin()
                     } else {
                         Toast.makeText(
                             this@MessagesActivity,
@@ -289,14 +209,15 @@ class MessagesActivity : AppCompatActivity() {
             val text = message.data?.textData?.text
             val imageLink = message.data?.imageData?.link
 
-            if (text != null) {
+            if (!text.isNullOrBlank()) {
                 val textView = TextView(this@MessagesActivity).apply {
                     this.text = text
                     textSize = 18f
                 }
 
                 layout.addView(textView)
-            } else if (imageLink != null) {
+
+            } else if (!imageLink.isNullOrBlank()) {
                 val encodedLink = Uri.encode(imageLink)
                 val thumbUrl = "https://faerytea.name/thumb/$encodedLink"
                 val imageUrl = "https://faerytea.name/img/$encodedLink"
@@ -307,7 +228,9 @@ class MessagesActivity : AppCompatActivity() {
                         500
                     )
                     scaleType = ImageView.ScaleType.CENTER_CROP
+
                     load(thumbUrl)
+
                     setOnClickListener {
                         val intent = Intent(this@MessagesActivity, ImageActivity::class.java)
                         intent.putExtra("url", imageUrl)
@@ -316,9 +239,10 @@ class MessagesActivity : AppCompatActivity() {
                 }
 
                 layout.addView(imageView)
+
             } else {
                 val textView = TextView(this@MessagesActivity).apply {
-                    this.text = "[не текстовое сообщение]"
+                    this.text = "[пустое сообщение]"
                 }
 
                 layout.addView(textView)
@@ -327,13 +251,7 @@ class MessagesActivity : AppCompatActivity() {
             return layout
         }
     }
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
 
-        selectedImageUri?.let {
-            outState.putString(selectedImageKey, it.toString())
-        }
-    }
     override fun onSupportNavigateUp(): Boolean {
         finish()
         return true

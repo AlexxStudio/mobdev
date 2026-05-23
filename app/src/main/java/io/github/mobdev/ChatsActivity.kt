@@ -1,6 +1,5 @@
 package io.github.mobdev
 
-import android.content.res.Configuration
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
@@ -8,7 +7,6 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ListView
-import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -101,11 +99,6 @@ class ChatsActivity : AppCompatActivity() {
             .build()
             .create(ChatApi::class.java)
 
-        fun updateRightPanel(chatName: String) {
-            val placeholder = findViewById<TextView?>(R.id.placeholder)
-            placeholder?.text = chatName
-        }
-
         fun loadChannels() {
             lifecycleScope.launch {
                 try {
@@ -188,6 +181,17 @@ class ChatsActivity : AppCompatActivity() {
                             "Канал создан",
                             Toast.LENGTH_SHORT
                         ).show()
+                    } else if (response.code() == 401) {
+
+                        getSharedPreferences("auth", MODE_PRIVATE)
+                            .edit()
+                            .clear()
+                            .apply()
+
+                        val intent = android.content.Intent(this@ChatsActivity, MainActivity::class.java)
+                        startActivity(intent)
+                        finish()
+
                     } else {
                         Toast.makeText(
                             this@ChatsActivity,

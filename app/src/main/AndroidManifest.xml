@@ -16,10 +16,14 @@
         android:theme="@style/Theme.Mobdev">
         <activity
             android:name=".ImageActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:configChanges="orientation|screenSize" />
+
         <activity
             android:name=".MessagesActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:configChanges="orientation|screenSize" />
+
         <activity
             android:name=".ChatsActivity"
             android:exported="false" />

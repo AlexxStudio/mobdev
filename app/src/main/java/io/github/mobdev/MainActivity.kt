@@ -17,7 +17,6 @@ import retrofit2.Response
 
 class MainActivity : AppCompatActivity() {
 
-    // API интерфейс прямо здесь (потом вынесем)
     interface ChatApi {
         @POST("login")
         suspend fun login(@Body body: LoginRequest): Response<okhttp3.ResponseBody>
@@ -36,7 +35,6 @@ class MainActivity : AppCompatActivity() {
         val etPassword = findViewById<EditText>(R.id.etPassword)
         val btnLogin = findViewById<Button>(R.id.btnLogin)
 
-        // Retrofit
         val logging = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BODY
         }
