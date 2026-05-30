@@ -1,6 +1,9 @@
 package io.github.mobdev
 
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
@@ -16,7 +19,9 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import coil.load
+import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
@@ -31,6 +36,8 @@ import retrofit2.http.POST
 import retrofit2.http.Path
 
 class MessagesActivity : AppCompatActivity() {
+
+    private val gson = Gson()
 
     data class Message(
         val id: String?,
@@ -48,13 +55,9 @@ class MessagesActivity : AppCompatActivity() {
         val imageData: ImageData?
     )
 
-    data class TextData(
-        val text: String?
-    )
+    data class TextData(val text: String?)
 
-    data class ImageData(
-        val link: String?
-    )
+    data class ImageData(val link: String?)
 
     data class SendMessage(
         val from: String,
@@ -75,6 +78,39 @@ class MessagesActivity : AppCompatActivity() {
             @Header("X-Auth-Token") token: String,
             @Body message: SendMessage
         ): Response<ResponseBody>
+    }
+
+    private fun isOnline(): Boolean {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = cm.activeNetwork ?: return false
+        val capabilities = cm.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    private fun cacheKey(chatName: String): String {
+        return "messages_cache_$chatName"
+    }
+
+    private fun loadMessagesFromCache(chatName: String): List<Message> {
+        val json = getSharedPreferences("cache", MODE_PRIVATE)
+            .getString(cacheKey(chatName), null)
+            ?: return emptyList()
+
+        val type = object : TypeToken<List<Message>>() {}.type
+        return gson.fromJson(json, type)
+    }
+
+    private fun saveMessagesToCache(chatName: String, messages: List<Message>) {
+        val oldMessages = loadMessagesFromCache(chatName)
+
+        val merged = (oldMessages + messages)
+            .distinctBy { it.id ?: "${it.from}_${it.to}_${it.time}_${it.data}" }
+            .sortedByDescending { it.time ?: 0L }
+
+        getSharedPreferences("cache", MODE_PRIVATE)
+            .edit()
+            .putString(cacheKey(chatName), gson.toJson(merged))
+            .apply()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -120,15 +156,35 @@ class MessagesActivity : AppCompatActivity() {
         }
 
         fun loadMessages() {
+            val cachedMessages = loadMessagesFromCache(chatName)
+
+            if (cachedMessages.isNotEmpty()) {
+                listView.adapter = MessagesAdapter(cachedMessages)
+            }
+
+            if (!isOnline()) {
+                Toast.makeText(
+                    this@MessagesActivity,
+                    "Нет сети, показаны сохранённые сообщения",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return
+            }
+
             lifecycleScope.launch {
                 try {
                     val messages = api.getMessages(chatName)
-                    listView.adapter = MessagesAdapter(messages)
+
+                    saveMessagesToCache(chatName, messages)
+
+                    val updatedMessages = loadMessagesFromCache(chatName)
+                    listView.adapter = MessagesAdapter(updatedMessages)
+
                 } catch (e: Exception) {
                     Toast.makeText(
                         this@MessagesActivity,
-                        "Ошибка загрузки: ${e.message}",
-                        Toast.LENGTH_LONG
+                        "Ошибка загрузки, показан кэш",
+                        Toast.LENGTH_SHORT
                     ).show()
                 }
             }
@@ -141,6 +197,15 @@ class MessagesActivity : AppCompatActivity() {
 
             if (text.isBlank()) {
                 Toast.makeText(this, "Введите сообщение", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            if (!isOnline()) {
+                Toast.makeText(
+                    this,
+                    "Нет сети. Отправка сообщений недоступна",
+                    Toast.LENGTH_SHORT
+                ).show()
                 return@setOnClickListener
             }
 
